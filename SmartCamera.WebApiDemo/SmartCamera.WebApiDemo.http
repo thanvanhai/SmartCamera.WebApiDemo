@@ -1,0 +1,6 @@
+@SmartCamera.WebApiDemo_HostAddress = http://localhost:5288
+
+GET {{SmartCamera.WebApiDemo_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
