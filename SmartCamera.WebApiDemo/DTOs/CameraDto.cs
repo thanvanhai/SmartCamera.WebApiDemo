@@ -1,5 +1,4 @@
 ﻿using SmartCamera.WebApiDemo.Models;
-using SmartCamera.WebApiDemo.Models;
 using System.ComponentModel.DataAnnotations;
 
 namespace SmartCamera.WebApiDemo.DTOs

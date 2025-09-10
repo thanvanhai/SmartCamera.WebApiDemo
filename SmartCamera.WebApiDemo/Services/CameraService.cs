@@ -4,6 +4,7 @@ using SmartCamera.WebApiDemo.Data;
 using SmartCamera.WebApiDemo.DTOs;
 using SmartCamera.WebApiDemo.Models;
 using SmartCamera.WebApiDemo.Services;
+using SmartCamera.WebApiDemo.Messaging; // Namespace chứa IMessageProducer
 using System.Net.NetworkInformation;
 
 namespace SmartCamera.WebApi.Services
@@ -13,22 +14,27 @@ namespace SmartCamera.WebApi.Services
         private readonly AppDbContext _context;
         private readonly IMapper _mapper;
         private readonly ILogger<CameraService> _logger;
+        private readonly IMessageProducer _producer;
 
-        public CameraService(AppDbContext context, IMapper mapper, ILogger<CameraService> logger)
+        public CameraService(
+            AppDbContext context,
+            IMapper mapper,
+            ILogger<CameraService> logger,
+            IMessageProducer producer)
         {
             _context = context;
             _mapper = mapper;
             _logger = logger;
+            _producer = producer;
         }
 
-        public async Task<IEnumerable<CameraDto>> GetAllCamerasAsync()
+        public async Task<IEnumerable<CameraDto>> GetAllCamerasAsync(CancellationToken cancellationToken = default)
         {
             try
             {
                 var cameras = await _context.Cameras
-                    .Where(c => !c.IsActive || c.IsActive) // Có thể filter theo IsActive
                     .OrderBy(c => c.Name)
-                    .ToListAsync();
+                    .ToListAsync(cancellationToken);
 
                 return _mapper.Map<IEnumerable<CameraDto>>(cameras);
             }
@@ -39,13 +45,11 @@ namespace SmartCamera.WebApi.Services
             }
         }
 
-        public async Task<CameraDto?> GetCameraByIdAsync(int id)
+        public async Task<CameraDto?> GetCameraByIdAsync(int id, CancellationToken cancellationToken = default)
         {
             try
             {
-                var camera = await _context.Cameras
-                    .FirstOrDefaultAsync(c => c.Id == id);
-
+                var camera = await _context.Cameras.FirstOrDefaultAsync(c => c.Id == id, cancellationToken);
                 return camera != null ? _mapper.Map<CameraDto>(camera) : null;
             }
             catch (Exception ex)
@@ -55,18 +59,15 @@ namespace SmartCamera.WebApi.Services
             }
         }
 
-        public async Task<CameraDto> CreateCameraAsync(CreateCameraRequest request)
+        public async Task<CameraDto> CreateCameraAsync(CreateCameraRequest request, CancellationToken cancellationToken = default)
         {
             try
             {
-                // Check if IP already exists
                 var existingCamera = await _context.Cameras
-                    .FirstOrDefaultAsync(c => c.IpAddress == request.IpAddress);
+                    .FirstOrDefaultAsync(c => c.IpAddress == request.IpAddress, cancellationToken);
 
                 if (existingCamera != null)
-                {
                     throw new InvalidOperationException($"Camera with IP {request.IpAddress} already exists");
-                }
 
                 var camera = new Camera
                 {
@@ -85,9 +86,19 @@ namespace SmartCamera.WebApi.Services
                 };
 
                 _context.Cameras.Add(camera);
-                await _context.SaveChangesAsync();
+                await _context.SaveChangesAsync(cancellationToken);
 
                 _logger.LogInformation("Created new camera: {Name} with IP: {IP}", request.Name, request.IpAddress);
+
+                // Publish event camera.registered
+                await _producer.PublishAsync("smartcamera", "camera.registered", new
+                {
+                    Id = camera.Id,
+                    Name = camera.Name,
+                    RtspUrl = camera.StreamUrl,
+                    Location = camera.Location,
+                    CreatedAt = camera.CreatedAt
+                }, cancellationToken);
 
                 return _mapper.Map<CameraDto>(camera);
             }
@@ -98,13 +109,12 @@ namespace SmartCamera.WebApi.Services
             }
         }
 
-        public async Task<CameraDto?> UpdateCameraAsync(int id, UpdateCameraRequest request)
+        public async Task<CameraDto?> UpdateCameraAsync(int id, UpdateCameraRequest request, CancellationToken cancellationToken = default)
         {
             try
             {
-                var camera = await _context.Cameras.FindAsync(id);
-                if (camera == null)
-                    return null;
+                var camera = await _context.Cameras.FindAsync(new object?[] { id }, cancellationToken);
+                if (camera == null) return null;
 
                 camera.Name = request.Name;
                 camera.Location = request.Location;
@@ -115,9 +125,18 @@ namespace SmartCamera.WebApi.Services
                 camera.FaceRecognitionEnabled = request.FaceRecognitionEnabled;
                 camera.UpdatedAt = DateTime.UtcNow;
 
-                await _context.SaveChangesAsync();
+                await _context.SaveChangesAsync(cancellationToken);
 
                 _logger.LogInformation("Updated camera: {Name} (ID: {Id})", camera.Name, id);
+
+                // Publish event camera.updated
+                await _producer.PublishAsync("smartcamera", "camera.updated", new
+                {
+                    Id = camera.Id,
+                    Name = camera.Name,
+                    Location = camera.Location,
+                    UpdatedAt = camera.UpdatedAt
+                }, cancellationToken);
 
                 return _mapper.Map<CameraDto>(camera);
             }
@@ -128,24 +147,25 @@ namespace SmartCamera.WebApi.Services
             }
         }
 
-        public async Task<bool> DeleteCameraAsync(int id)
+        public async Task<bool> DeleteCameraAsync(int id, CancellationToken cancellationToken = default)
         {
             try
             {
-                var camera = await _context.Cameras.FindAsync(id);
-                if (camera == null)
-                    return false;
+                var camera = await _context.Cameras.FindAsync(new object?[] { id }, cancellationToken);
+                if (camera == null) return false;
 
-                // Soft delete - just mark as inactive
-                camera.IsActive = false;
-                camera.UpdatedAt = DateTime.UtcNow;
-
-                // Or hard delete if needed
                 _context.Cameras.Remove(camera);
-
-                await _context.SaveChangesAsync();
+                await _context.SaveChangesAsync(cancellationToken);
 
                 _logger.LogInformation("Deleted camera: {Name} (ID: {Id})", camera.Name, id);
+
+                // Publish event camera.deleted
+                await _producer.PublishAsync("smartcamera", "camera.deleted", new
+                {
+                    Id = id,
+                    DeletedAt = DateTime.UtcNow
+                }, cancellationToken);
+
                 return true;
             }
             catch (Exception ex)
@@ -155,26 +175,32 @@ namespace SmartCamera.WebApi.Services
             }
         }
 
-        public async Task<bool> TestCameraConnectionAsync(int id)
+        public async Task<bool> TestCameraConnectionAsync(int id, CancellationToken cancellationToken = default)
         {
             try
             {
-                var camera = await _context.Cameras.FindAsync(id);
-                if (camera == null)
-                    return false;
+                var camera = await _context.Cameras.FindAsync(new object?[] { id }, cancellationToken);
+                if (camera == null) return false;
 
-                // Simple ping test
                 using var ping = new Ping();
                 var reply = await ping.SendPingAsync(camera.IpAddress, 5000);
-
                 var isOnline = reply.Status == IPStatus.Success;
 
-                // Update camera status
                 camera.Status = isOnline ? CameraStatus.Online : CameraStatus.Offline;
-                await _context.SaveChangesAsync();
+                camera.UpdatedAt = DateTime.UtcNow;
+
+                await _context.SaveChangesAsync(cancellationToken);
 
                 _logger.LogInformation("Camera {Name} connection test: {Status}",
                     camera.Name, isOnline ? "Success" : "Failed");
+
+                // Publish event camera.status.updated
+                await _producer.PublishAsync("smartcamera", "camera.status.updated", new
+                {
+                    Id = camera.Id,
+                    Status = camera.Status.ToString(),
+                    UpdatedAt = camera.UpdatedAt
+                }, cancellationToken);
 
                 return isOnline;
             }
@@ -185,15 +211,13 @@ namespace SmartCamera.WebApi.Services
             }
         }
 
-        public async Task<string> GetStreamUrlAsync(int id, string quality = "HD")
+        public async Task<string> GetStreamUrlAsync(int id, string quality = "HD", CancellationToken cancellationToken = default)
         {
             try
             {
-                var camera = await _context.Cameras.FindAsync(id);
-                if (camera == null)
-                    return string.Empty;
+                var camera = await _context.Cameras.FindAsync(new object?[] { id }, cancellationToken);
+                if (camera == null) return string.Empty;
 
-                // Generate stream URL based on quality
                 var baseUrl = camera.StreamUrl;
                 return quality.ToUpper() switch
                 {
@@ -210,14 +234,14 @@ namespace SmartCamera.WebApi.Services
             }
         }
 
-        public async Task<IEnumerable<CameraDto>> GetCamerasByLocationAsync(string location)
+        public async Task<IEnumerable<CameraDto>> GetCamerasByLocationAsync(string location, CancellationToken cancellationToken = default)
         {
             try
             {
                 var cameras = await _context.Cameras
                     .Where(c => c.Location.Contains(location) && c.IsActive)
                     .OrderBy(c => c.Name)
-                    .ToListAsync();
+                    .ToListAsync(cancellationToken);
 
                 return _mapper.Map<IEnumerable<CameraDto>>(cameras);
             }
@@ -228,19 +252,28 @@ namespace SmartCamera.WebApi.Services
             }
         }
 
-        public async Task<bool> UpdateCameraStatusAsync(int id, CameraStatus status)
+        public async Task<bool> UpdateCameraStatusAsync(int id, CameraStatus status, CancellationToken cancellationToken = default)
         {
             try
             {
-                var camera = await _context.Cameras.FindAsync(id);
-                if (camera == null)
-                    return false;
+                var camera = await _context.Cameras.FindAsync(new object?[] { id }, cancellationToken);
+                if (camera == null) return false;
 
                 camera.Status = status;
                 camera.UpdatedAt = DateTime.UtcNow;
-                await _context.SaveChangesAsync();
+
+                await _context.SaveChangesAsync(cancellationToken);
 
                 _logger.LogInformation("Updated camera {Name} status to {Status}", camera.Name, status);
+
+                // Publish event camera.status.updated
+                await _producer.PublishAsync("smartcamera", "camera.status.updated", new
+                {
+                    Id = camera.Id,
+                    Status = status.ToString(),
+                    UpdatedAt = camera.UpdatedAt
+                }, cancellationToken);
+
                 return true;
             }
             catch (Exception ex)
@@ -250,14 +283,14 @@ namespace SmartCamera.WebApi.Services
             }
         }
 
-        public async Task<Dictionary<string, object>> GetCameraStatsAsync(int id)
+        public async Task<Dictionary<string, object>> GetCameraStatsAsync(int id, CancellationToken cancellationToken = default)
         {
             try
             {
                 var camera = await _context.Cameras
                     .Include(c => c.Events)
                     .Include(c => c.Recordings)
-                    .FirstOrDefaultAsync(c => c.Id == id);
+                    .FirstOrDefaultAsync(c => c.Id == id, cancellationToken);
 
                 if (camera == null)
                     return new Dictionary<string, object>();
@@ -286,7 +319,6 @@ namespace SmartCamera.WebApi.Services
 
         private static string GenerateStreamUrl(string ip, int port, string username, string password)
         {
-            // RTSP URL format for IP cameras
             if (!string.IsNullOrEmpty(username) && !string.IsNullOrEmpty(password))
             {
                 return $"rtsp://{username}:{password}@{ip}:{port}/stream1";

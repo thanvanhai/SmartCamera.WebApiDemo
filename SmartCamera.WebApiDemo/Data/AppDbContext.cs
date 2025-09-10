@@ -1,6 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using SmartCamera.WebApiDemo.Models;
-using SmartCamera.WebApiDemo.Models;
 
 namespace SmartCamera.WebApiDemo.Data
 {

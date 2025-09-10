@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using SmartCamera.WebApiDemo.DTOs;
 using SmartCamera.WebApiDemo.Services;
 using System.ComponentModel.DataAnnotations;
@@ -8,6 +9,7 @@ namespace SmartCamera.WebApiDemo.Controllers
     [ApiController]
     //[Route("api/[controller]")]
     [Route("api/cameras")]   // 👈 viết thường luôn
+    [Authorize] // Yêu cầu xác thực cho tất cả các endpoint trong controller này
     public class CamerasController : ControllerBase
     {
         private readonly ICameraService _cameraService;

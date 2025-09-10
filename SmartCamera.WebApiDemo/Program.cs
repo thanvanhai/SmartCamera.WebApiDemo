@@ -1,14 +1,16 @@
-using Microsoft.AspNetCore.Authentication.JwtBearer;
+﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using SmartCamera.WebApi.Services;
 using SmartCamera.WebApiDemo.Data;
 using SmartCamera.WebApiDemo.Mappings;
+using SmartCamera.WebApiDemo.Messaging;
 using SmartCamera.WebApiDemo.Services;
 using System.Reflection;
 using System.Text;
-using Microsoft.Extensions.DependencyInjection;
+using SmartCamera.WebApiDemo.Messaging;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -25,6 +27,17 @@ builder.Services.AddAutoMapper(typeof(MappingProfile));
 // Services
 builder.Services.AddScoped<ICameraService, CameraService>();
 builder.Services.AddScoped<IEventService, EventService>();
+// RabbitMQ Producer
+// Lấy connection string từ appsettings.json hoặc biến môi trường
+var amqpUrl = builder.Configuration.GetConnectionString("RabbitMQ");
+
+// Đăng ký Producer vào DI
+builder.Services.AddSingleton<IMessageProducer>(sp =>
+{
+    var logger = sp.GetRequiredService<ILogger<Producer>>();
+    // Producer dùng factory async nên phải .GetAwaiter().GetResult() để init sync
+    return Producer.CreateAsync(amqpUrl!, logger).GetAwaiter().GetResult();
+});
 
 // JWT Authentication
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
