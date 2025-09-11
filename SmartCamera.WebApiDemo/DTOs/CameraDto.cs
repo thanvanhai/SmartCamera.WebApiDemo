@@ -41,6 +41,9 @@ namespace SmartCamera.WebApiDemo.DTOs
         [StringLength(50)]
         public string Password { get; set; } = string.Empty;
 
+        [StringLength(500)]
+        public string? StreamUrl { get; set; }   // ✅ Cho phép user nhập thủ công
+
         [StringLength(200)]
         public string Location { get; set; } = string.Empty;
 
@@ -61,6 +64,9 @@ namespace SmartCamera.WebApiDemo.DTOs
 
         [StringLength(500)]
         public string Description { get; set; } = string.Empty;
+
+        [StringLength(500)]
+        public string? StreamUrl { get; set; }   // ✅ Cho phép user nhập thủ công
 
         public bool IsActive { get; set; } = true;
         public bool RecordingEnabled { get; set; } = true;

@@ -79,7 +79,10 @@ namespace SmartCamera.WebApi.Services
                     Location = request.Location,
                     Description = request.Description,
                     Type = request.Type,
-                    StreamUrl = GenerateStreamUrl(request.IpAddress, request.Port, request.Username, request.Password),
+                    // Nếu request.StreamUrl có thì lấy, không thì tự generate
+                    StreamUrl = string.IsNullOrWhiteSpace(request.StreamUrl)
+                    ? GenerateStreamUrl(request.IpAddress, request.Port, request.Username, request.Password)
+                    : request.StreamUrl,
                     Status = CameraStatus.Offline,
                     IsActive = true,
                     CreatedAt = DateTime.UtcNow
@@ -93,11 +96,11 @@ namespace SmartCamera.WebApi.Services
                 // Publish event camera.registered
                 await _producer.PublishAsync("smartcamera", "camera.registered", new
                 {
-                    Id = camera.Id,
-                    Name = camera.Name,
-                    RtspUrl = camera.StreamUrl,
-                    Location = camera.Location,
-                    CreatedAt = camera.CreatedAt
+                    id = camera.Id,
+                    name = camera.Name,
+                    rtsp_url = camera.StreamUrl,
+                    location = camera.Location,
+                    created_at = camera.CreatedAt
                 }, cancellationToken);
 
                 return _mapper.Map<CameraDto>(camera);
@@ -132,10 +135,10 @@ namespace SmartCamera.WebApi.Services
                 // Publish event camera.updated
                 await _producer.PublishAsync("smartcamera", "camera.updated", new
                 {
-                    Id = camera.Id,
-                    Name = camera.Name,
-                    Location = camera.Location,
-                    UpdatedAt = camera.UpdatedAt
+                    id = camera.Id,
+                    name = camera.Name,
+                    location = camera.Location,
+                    updated_at = camera.UpdatedAt
                 }, cancellationToken);
 
                 return _mapper.Map<CameraDto>(camera);
@@ -162,8 +165,8 @@ namespace SmartCamera.WebApi.Services
                 // Publish event camera.deleted
                 await _producer.PublishAsync("smartcamera", "camera.deleted", new
                 {
-                    Id = id,
-                    DeletedAt = DateTime.UtcNow
+                    id = id,
+                    deleted_at = DateTime.UtcNow
                 }, cancellationToken);
 
                 return true;
@@ -197,9 +200,9 @@ namespace SmartCamera.WebApi.Services
                 // Publish event camera.status.updated
                 await _producer.PublishAsync("smartcamera", "camera.status.updated", new
                 {
-                    Id = camera.Id,
-                    Status = camera.Status.ToString(),
-                    UpdatedAt = camera.UpdatedAt
+                    id = camera.Id,
+                    status = camera.Status.ToString().ToLower(),
+                    updated_at = camera.UpdatedAt
                 }, cancellationToken);
 
                 return isOnline;
@@ -269,9 +272,9 @@ namespace SmartCamera.WebApi.Services
                 // Publish event camera.status.updated
                 await _producer.PublishAsync("smartcamera", "camera.status.updated", new
                 {
-                    Id = camera.Id,
-                    Status = status.ToString(),
-                    UpdatedAt = camera.UpdatedAt
+                    id = camera.Id,
+                    status = status.ToString().ToLower(),
+                    updated_at = camera.UpdatedAt
                 }, cancellationToken);
 
                 return true;
@@ -300,14 +303,14 @@ namespace SmartCamera.WebApi.Services
 
                 return new Dictionary<string, object>
                 {
-                    { "totalEvents", camera.Events.Count },
-                    { "eventsToday", camera.Events.Count(e => e.Timestamp.Date == today) },
-                    { "eventsThisWeek", camera.Events.Count(e => e.Timestamp >= thisWeek) },
-                    { "totalRecordings", camera.Recordings.Count },
-                    { "recordingsToday", camera.Recordings.Count(r => r.StartTime.Date == today) },
-                    { "totalStorageGB", Math.Round(camera.Recordings.Sum(r => r.FileSizeBytes) / (1024.0 * 1024 * 1024), 2) },
-                    { "status", camera.Status.ToString() },
-                    { "uptime", camera.Status == CameraStatus.Online ? "Online" : "Offline" }
+                    { "total_events", camera.Events.Count },
+                    { "events_today", camera.Events.Count(e => e.Timestamp.Date == today) },
+                    { "events_this_week", camera.Events.Count(e => e.Timestamp >= thisWeek) },
+                    { "total_recordings", camera.Recordings.Count },
+                    { "recordings_today", camera.Recordings.Count(r => r.StartTime.Date == today) },
+                    { "total_storage_gb", Math.Round(camera.Recordings.Sum(r => r.FileSizeBytes) / (1024.0 * 1024 * 1024), 2) },
+                    { "status", camera.Status.ToString().ToLower() },
+                    { "uptime", camera.Status == CameraStatus.Online ? "online" : "offline" }
                 };
             }
             catch (Exception ex)
