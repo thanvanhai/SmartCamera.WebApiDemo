@@ -11,8 +11,12 @@ using SmartCamera.WebApiDemo.Services;
 using System.Reflection;
 using System.Text;
 using SmartCamera.WebApiDemo.Messaging;
+using SmartCamera.WebApiDemo.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// ✅ THÊM SignalR
+builder.Services.AddSignalR();
 
 // Add services to the container.
 builder.Services.AddControllers();
@@ -166,5 +170,7 @@ using (var scope = app.Services.CreateScope())
         Console.WriteLine($"Error migrating database: {ex.Message}");
     }
 }
+// ✅ MAP SignalR Hub
+app.MapHub<ResultsHub>("/resultsHub");
 
 app.Run();

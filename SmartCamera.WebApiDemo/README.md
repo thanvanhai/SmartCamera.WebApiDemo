@@ -1,4 +1,39 @@
-﻿## Tiếp theo, bạn cần cài đặt NuGet packages:
+﻿```
+SmartCamera.WebApiDemo/
+│
+├── Controllers/
+│   └── CameraController.cs
+│
+├── Data/
+│   └── AppDbContext.cs
+│
+├── DTOs/
+│   ├── CameraDto.cs
+│   └── CreateCameraRequest.cs
+│
+├── Messaging/
+│   ├── IMessageProducer.cs
+│   └── RabbitMQProducer.cs
+│
+├── Models/
+│   └── Camera.cs
+│
+├── Services/
+│   ├── ICameraService.cs
+│   └── CameraService.cs
+│
+├── Migrations/
+│   └── ... (Các file migration của EF Core)
+│
+├── Properties/
+│   └── launchSettings.json
+│
+├── Program.cs
+├── appsettings.json
+├── SmartCamera.WebApiDemo.csproj
+└── README.md
+```
+## Tiếp theo, bạn cần cài đặt NuGet packages:
 
 **Package Manager Console:**
 ```
