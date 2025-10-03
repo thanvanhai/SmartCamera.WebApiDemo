@@ -1,7 +1,8 @@
-﻿using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.SignalR;
+﻿// Controllers/ResultsController.cs - Updated to use SignalR
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using SmartCamera.WebApiDemo.Services;
 using SmartCamera.WebApiDemo.DTOs;
-using SmartCamera.WebApiDemo.Hubs;
 
 namespace SmartCamera.WebApiDemo.Controllers
 {
@@ -9,67 +10,99 @@ namespace SmartCamera.WebApiDemo.Controllers
     [Route("api/[controller]")]
     public class ResultsController : ControllerBase
     {
-        private readonly IHubContext<ResultsHub> _hubContext;
+        private readonly IAIResultsService _aiResultsService;
         private readonly ILogger<ResultsController> _logger;
 
-        public ResultsController(IHubContext<ResultsHub> hubContext, ILogger<ResultsController> logger)
+        public ResultsController(IAIResultsService aiResultsService, ILogger<ResultsController> logger)
         {
-            _hubContext = hubContext;
+            _aiResultsService = aiResultsService;
             _logger = logger;
         }
 
         /// <summary>
-        /// Endpoint để Results Processor (Python) POST kết quả AI
+        /// Nhận kết quả AI detection từ worker (AI service) và phát broadcast qua SignalR.
         /// </summary>
+        /// <param name="result">Dữ liệu kết quả AI detection (bao gồm cameraId, số lượng detection, danh sách object nhận diện).</param>
+        /// <returns>Kết quả xử lý (200 nếu thành công, 400 nếu dữ liệu không hợp lệ, 500 nếu lỗi hệ thống).</returns>
         [HttpPost("ai-detection")]
-        public async Task<IActionResult> ReceiveAIResult([FromBody] AIResultDto result)
+        public async Task<IActionResult> ReceiveAIDetection([FromBody] AIResultDto result)
         {
             try
             {
+                // Validate required fields
                 if (string.IsNullOrEmpty(result.CameraId))
                 {
-                    return BadRequest("CameraId is required");
+                    return BadRequest(new { error = "CameraId is required" });
                 }
 
-                _logger.LogInformation($"Received AI result for camera {result.CameraId} with {result.DetectionCount} detections");
+                if (result.Result == null)
+                {
+                    return BadRequest(new { error = "Result field is required" });
+                }
 
-                // Broadcast tới tất cả clients qua SignalR
-                await _hubContext.Clients.All.SendAsync("ReceiveAIResult", result);
+                // Log the received detection
+                _logger.LogInformation($"📥 Received AI detection - Camera: {result.CameraId}, Detections: {result.DetectionCount}");
 
-                // Broadcast tới group của camera cụ thể
-                await _hubContext.Clients.Group($"camera-{result.CameraId}").SendAsync("ReceiveCameraResult", result);
+                // Store in database if needed (add your database logic here)
+                // await _dbContext.AIResults.AddAsync(result);
+                // await _dbContext.SaveChangesAsync();
 
-                return Ok(new { message = "AI result received and broadcasted successfully" });
+                // Broadcast to connected clients via SignalR
+                await _aiResultsService.BroadcastDetectionResult(result);
+
+                // Generate alerts if needed
+                if (result.DetectionCount > 0 && result.Detections.Any(d => d.Type == "person" && d.Confidence > 0.8))
+                {
+                    var alert = new AlertDto
+                    {
+                        Id = Guid.NewGuid().ToString(),
+                        CameraId = result.CameraId,
+                        Type = "High Confidence Person Detection",
+                        Message = $"Detected {result.DetectionCount} objects with high confidence",
+                        Timestamp = DateTime.UtcNow,
+                        Severity = "Medium"
+                    };
+
+                    await _aiResultsService.BroadcastAlert(alert);
+                }
+
+                return Ok(new { success = true, message = "Detection result received and broadcasted" });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error processing AI result");
-                return StatusCode(500, "Internal server error");
+                _logger.LogError($"❌ Error processing AI detection: {ex.Message}");
+                return StatusCode(500, new { error = "Internal server error" });
             }
         }
 
         /// <summary>
-        /// Endpoint để test (có thể xóa khi production)
+        /// Lấy danh sách detection gần nhất của 1 camera.
         /// </summary>
-        [HttpGet("test")]
-        public async Task<IActionResult> TestBroadcast()
+        /// <param name="cameraId">ID camera cần lấy dữ liệu.</param>
+        /// <param name="limit">Số lượng bản ghi tối đa muốn lấy (default = 10).</param>
+        /// <returns>Danh sách detection (nếu có), hoặc mảng rỗng.</returns>
+        [HttpGet("camera/{cameraId}/latest")]
+        public async Task<IActionResult> GetLatestDetections(string cameraId, [FromQuery] int limit = 10)
         {
-            var testResult = new AIResultDto
+            try
             {
-                CameraId = "test-camera-1",
-                WorkerId = "test-worker",
-                Timestamp = DateTime.UtcNow,
-                ProcessingTimeMs = 150.5,
-                DetectionCount = 2,
-                Detections = new List<DetectionInfo>
-                {
-                    new() { ClassName = "person", Confidence = 0.85, BBox = new BoundingBox { X = 100, Y = 50, Width = 80, Height = 200 } },
-                    new() { ClassName = "car", Confidence = 0.92, BBox = new BoundingBox { X = 300, Y = 150, Width = 120, Height = 80 } }
-                }
-            };
+                // Add your database query logic here
+                // var results = await _dbContext.AIResults
+                //     .Where(r => r.CameraId == cameraId)
+                //     .OrderByDescending(r => r.Timestamp)
+                //     .Take(limit)
+                //     .ToListAsync();
 
-            await _hubContext.Clients.All.SendAsync("ReceiveAIResult", testResult);
-            return Ok("Test result broadcasted");
+                // For demo, return empty array
+                var results = new List<AIResultDto>();
+
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"❌ Error getting latest detections: {ex.Message}");
+                return StatusCode(500, new { error = "Internal server error" });
+            }
         }
     }
 }

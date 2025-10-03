@@ -1,6 +1,5 @@
 ﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using SmartCamera.WebApi.Services;
@@ -10,16 +9,34 @@ using SmartCamera.WebApiDemo.Messaging;
 using SmartCamera.WebApiDemo.Services;
 using System.Reflection;
 using System.Text;
-using SmartCamera.WebApiDemo.Messaging;
 using SmartCamera.WebApiDemo.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // ✅ THÊM SignalR
-builder.Services.AddSignalR();
+// Add SignalR
+builder.Services.AddSignalR(options =>
+{
+    options.EnableDetailedErrors = true;
+    options.KeepAliveInterval = TimeSpan.FromSeconds(15);
+    options.ClientTimeoutInterval = TimeSpan.FromSeconds(30);
+});
+
 
 // Add services to the container.
 builder.Services.AddControllers();
+builder.WebHost.ConfigureKestrel(options =>
+{
+    // Lắng nghe HTTPS trên tất cả IP
+    options.ListenAnyIP(7217, listenOptions =>
+    {
+        listenOptions.UseHttps();
+    });
+
+    // Nếu cần HTTP thì mở luôn (ví dụ debug WSL)
+    options.ListenAnyIP(5288);
+});
+
 
 // Database
 builder.Services.AddDbContext<AppDbContext>(options =>
@@ -28,9 +45,10 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // AutoMapper
 builder.Services.AddAutoMapper(typeof(MappingProfile));
 
-// Services
+// Services // Add custom services
 builder.Services.AddScoped<ICameraService, CameraService>();
 builder.Services.AddScoped<IEventService, EventService>();
+builder.Services.AddScoped<IAIResultsService, AIResultsService>();
 // RabbitMQ Producer
 // Lấy connection string từ appsettings.json hoặc biến môi trường
 var amqpUrl = builder.Configuration.GetConnectionString("RabbitMQ");
@@ -170,7 +188,7 @@ using (var scope = app.Services.CreateScope())
         Console.WriteLine($"Error migrating database: {ex.Message}");
     }
 }
-// ✅ MAP SignalR Hub
-app.MapHub<ResultsHub>("/resultsHub");
+// Map SignalR Hub
+app.MapHub<AIResultsHub>("/aiResultsHub");
 
 app.Run();
